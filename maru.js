@@ -77,7 +77,7 @@ function Router() {
  * @param {Route} route instance of a Route object.
  */
 Router.prototype.addRoute = function(route) {
-  this.routes[(config.type || REQUEST_METHODS.GET).toUpperCase()].push(route);
+  this.routes[(route.type || REQUEST_METHODS.GET).toUpperCase()].push(route);
 };
 
 /**
