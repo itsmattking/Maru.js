@@ -61,6 +61,14 @@ function padNum(num, places) {
 };
 
 /**
+ * Simple log function printing to stdout.
+ * @param {*} what
+ */
+function log(what) {
+  sys.puts(what);
+};
+
+/**
  * @constructor Router
  * Holds instances of routes and provides functionality to match requested
  * routes.
@@ -272,8 +280,7 @@ App.prototype.dispatch = function(req, res) {
  * @param {Object} params An object to populate with POST parameter values.
  */
 App.prototype.dispatchWithData = function(route, req, res, params) {
-  var instance = this,
-    data = [];
+  var instance = this, data = [];
   req.on('data', function(chunk) {
     data.push(chunk);
   });
@@ -315,7 +322,7 @@ App.prototype.finish = function(route, req, res, params) {
    * so it can call it when it's ready. Otherwise we'll call this
    * right away.
    */
-  var fin = function(out) {
+  var next = function(out) {
     if (!res.statusCode) {
       res.statusCode = 200;
     }
@@ -324,15 +331,29 @@ App.prototype.finish = function(route, req, res, params) {
     }
     instance.logRequest(req, res, out.length);
     res.end(out);
+    /**
+     * Remove the next function just in case it was defined.
+     */
+    delete(this.next);
   };
+
   try {
     /**
      * Call the body function, getting it's result.
-     * If it returns another function, call it passing in our 'fin' function
+     * If it returns another function, call it passing in our 'next' function
      * so it can call it when it needs to.
      */
     var out = route.body.apply(this, [req, res, params]);
-    typeof out === 'function' ? out(fin) : fin(out);
+    /**
+     * If no return, assume there that it will
+     * call render when it's finished. Save the next function, which the
+     * render function will check for and call when it's done.
+     */
+    if (typeof out === 'undefined') {
+      this.next = next;
+    } else {
+      typeof out === 'function' ? out.call(this, next) : next.call(this, out);
+    }
   } catch (e) {
     this.log(e);
     this.serverError(res);
@@ -369,6 +390,7 @@ App.prototype.redirect = function(res, url, statusCode) {
   }
   res.statusCode = statusCode;
   res.setHeader('location', url);
+  res.end();
 };
 
 /**
@@ -376,7 +398,7 @@ App.prototype.redirect = function(res, url, statusCode) {
  * @param {String} what
  */
 App.prototype.log = function(what) {
-  sys.puts(what);
+  log(what);
 };
 
 /**
@@ -399,6 +421,23 @@ App.prototype.logRequest = function(req, res, len) {
 };
 
 /**
+ * Generate a render callback for the template engine.
+ * @param {Function} callback the function to call after reading the file.
+ */
+App.prototype.renderCallback = function(callback) {
+  var self = this;
+  return function (err, output) {
+    if (err) { throw err; }
+    var buffer = '';
+    output.addListener('data', function (c) {
+      buffer += c;
+    }).addListener('end', function() {
+      callback.call(self, buffer);
+    });
+  };
+};
+
+/**
  * Render a template.
  * @param {String} template filename of the template to render.
  * @param {Object} ctx context object holding local variables available to
@@ -407,17 +446,16 @@ App.prototype.logRequest = function(req, res, len) {
  *   is complete.
  */
 App.prototype.render = function(template, ctx) {
-  return function(callback) {
-    TemplateEngine.render(template, ctx, {chunkSize: 10}, function (err, output) {
-      if (err) { throw err; }
-      var buffer = '';
-      output.addListener('data', function (c) {
-        buffer += c;
-      }).addListener('end', function() {
-        callback(buffer);
-      });
-    });
-  };
+  if (this.next) {
+    TemplateEngine.render(template, ctx, {chunkSize: 10},
+                          this.renderCallback(this.next));
+  } else {
+    var self = this;
+    return function(callback) {
+      TemplateEngine.render(template, ctx, {chunkSize: 10},
+                            self.renderCallback(callback));
+    };
+  }
 };
 
 /**
@@ -523,6 +561,7 @@ function runMagicApp(opts) {
  * Expose the App, and app creation functions.
  */
 exports.App = App;
+exports.log = log;
 exports.get = get;
 exports.post = post;
 exports.put = put;
