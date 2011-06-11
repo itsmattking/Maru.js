@@ -316,11 +316,7 @@ App.prototype.dispatchNoData = function(route, req, res, params) {
 App.prototype.finish = function(route, req, res, params) {
   var instance = this;
   /**
-   * Define a callback to be used in the final response.
-   * We do this in case the body function returns another function
-   * that needs to run first. We'll pass this in to the body function
-   * so it can call it when it's ready. Otherwise we'll call this
-   * right away.
+   * Define a callback to be used to end the response.
    */
   var end = function(out) {
     if (out === false) {
@@ -338,8 +334,11 @@ App.prototype.finish = function(route, req, res, params) {
     }
   };
 
-  res.render = function(optsOrString) {
-    instance.render(optsOrString, end);
+  res.render = function(opts) {
+    if (typeof opts !== 'object') {
+      opts = {};
+    }
+    instance.render(opts, end);
   };
 
   res.redirect = function(url, statusCode) {
@@ -455,9 +454,9 @@ App.prototype.render = function(opts, end) {
         });
       });
   } else if (opts.text) {
-    end.call(self, opts.text);
+    end.call(this, opts.text);
   } else {
-    end.call(self, false);
+    end.call(this, false);
   }
 };
 
