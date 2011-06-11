@@ -322,38 +322,50 @@ App.prototype.finish = function(route, req, res, params) {
    * so it can call it when it's ready. Otherwise we'll call this
    * right away.
    */
-  var next = function(out) {
-    if (!res.statusCode) {
-      res.statusCode = 200;
+  var end = function(out) {
+    if (out === false) {
+      instance.log(route.url + ': res.render not called and nothing returned on this request!');
+      instance.serverError(res);
+    } else {
+      if (!res.statusCode) {
+        res.statusCode = 200;
+      }
+      if (!res.getHeader('content-type')) {
+        res.setHeader('Content-Type', route.contentType);
+      }
+      instance.logRequest(req, res, out.length);
+      res.end(out);
     }
-    if (!res.getHeader('content-type')) {
-      res.setHeader('Content-Type', route.contentType);
-    }
-    instance.logRequest(req, res, out.length);
-    res.end(out);
-    /**
-     * Remove the next function just in case it was defined.
-     */
-    delete(this.next);
+  };
+
+  res.render = function(optsOrString) {
+    instance.render(optsOrString, end);
+  };
+
+  res.redirect = function(url, statusCode) {
+    instance.redirect(res, url, statusCode);
   };
 
   try {
+    var result = route.body.apply(this, [req, res, params]);
     /**
-     * Call the body function, getting it's result.
-     * If it returns another function, call it passing in our 'next' function
-     * so it can call it when it needs to.
+     * If something returned, assume that the user is not going to call
+     * res.render.
      */
-    var out = route.body.apply(this, [req, res, params]);
-    /**
-     * If no return, assume there that it will
-     * call render when it's finished. Save the next function, which the
-     * render function will check for and call when it's done.
-     */
-    if (typeof out === 'undefined') {
-      this.next = next;
-    } else {
-      typeof out === 'function' ? out.call(this, next) : next.call(this, out);
+    if (typeof result !== 'undefined') {
+      /**
+       * If the return value is a function, call it and pass the end function,
+       * if it's a string, call the end function immediately to display the
+       * result that is returned.
+       */
+      typeof result === 'function' ?
+        result.call(this, end) :
+        end.call(this, result);
     }
+    /**
+     * If nothing returned, assume the user is going to call res.render at
+     * some point in their body function.
+     */
   } catch (e) {
     this.log(e);
     this.serverError(res);
@@ -421,23 +433,6 @@ App.prototype.logRequest = function(req, res, len) {
 };
 
 /**
- * Generate a render callback for the template engine.
- * @param {Function} callback the function to call after reading the file.
- */
-App.prototype.renderCallback = function(callback) {
-  var self = this;
-  return function (err, output) {
-    if (err) { throw err; }
-    var buffer = '';
-    output.addListener('data', function (c) {
-      buffer += c;
-    }).addListener('end', function() {
-      callback.call(self, buffer);
-    });
-  };
-};
-
-/**
  * Render a template.
  * @param {String} template filename of the template to render.
  * @param {Object} ctx context object holding local variables available to
@@ -445,16 +440,24 @@ App.prototype.renderCallback = function(callback) {
  * @returns {Function} function that can be passed a callback once the rendering
  *   is complete.
  */
-App.prototype.render = function(template, ctx) {
-  if (this.next) {
-    TemplateEngine.render(template, ctx, {chunkSize: 10},
-                          this.renderCallback(this.next));
-  } else {
+App.prototype.render = function(opts, end) {
+  if (opts.template) {
     var self = this;
-    return function(callback) {
-      TemplateEngine.render(template, ctx, {chunkSize: 10},
-                            self.renderCallback(callback));
-    };
+    TemplateEngine.render(opts.template, opts.ctx,
+      {chunkSize: 10},
+      function (err, output) {
+        if (err) { throw err; }
+        var buffer = '';
+        output.addListener('data', function (c) {
+          buffer += c;
+        }).addListener('end', function() {
+          end.call(self, buffer);
+        });
+      });
+  } else if (opts.text) {
+    end.call(self, opts.text);
+  } else {
+    end.call(self, false);
   }
 };
 

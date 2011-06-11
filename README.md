@@ -42,5 +42,30 @@ Mix and Match!
 Render a template (Mu.js built in):
 
     maru.get('/hello/world', function(req, res, params) {
-      return this.render('index.html');
+      return res.render({template: 'index.html'});
+    });
+
+If you have any async functions in your route, you have to call
+res.render once you're finished.
+
+    maru.get('/show-data/:id', function(req, res, params) {
+      // imaginary ORM getting data from a db...
+      db.fetch({id: params.id}, function(result) {
+        res.render({template: 'data.html', ctx: {result: result}});
+      });
+    });
+
+Redirect when you're done saving data.
+
+    maru.post('/save-data/:id', function(req, res, params) {
+      // imaginary ORM saving data to a db...
+      db.fetch({id: params.id}, function(result) {
+        result.update(params, function(ok) {
+          if (ok) {
+            res.redirect('/success/');
+          } else {
+            res.render({template: 'error.html'});
+          }
+        });
+      });
     });
