@@ -42,7 +42,7 @@ Mix and Match!
 Render a template (Mu.js built in):
 
     maru.get('/hello/world', function(req, res, params) {
-      return res.render({template: 'index.html'});
+      res.render({template: 'index.html'});
     });
 
 If you have any async functions in your route, you have to call
